@@ -1,5 +1,6 @@
 <?php
 include("../config/db.php");
+include("../config/stream_config.php");
 
 // Production response headers. Tidak mengubah alur aplikasi lama.
 header('Content-Type: text/html; charset=UTF-8');
@@ -17,61 +18,15 @@ header('X-Frame-Options: SAMEORIGIN');
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <style>
-body {
-    font-family: 'Segoe UI', sans-serif;
-    background: linear-gradient(180deg, #27ae60, #1e8449);
-    color: white;
-    text-align: center;
-    margin: 0;
-    overflow: hidden;
-}
-body::before {
-    content: "";
-    background: url("../config/assets/bg_rsu.png") no-repeat center center fixed;
-    background-size: cover;
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    opacity: 0.12;
-    z-index: -1;
-}
-.header {
-    background: rgba(0,0,0,0.3);
-    padding: 20px;
-    font-size: 42px;
-    font-weight: bold;
-    letter-spacing: 2px;
-}
-.status {
-    position: fixed;
-    top: 10px; right: 20px;
-    font-size: 16px;
-    background: rgba(255,255,255,0.15);
-    padding: 6px 14px;
-    border-radius: 20px;
-    z-index: 1000;
-}
+body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(180deg, #27ae60, #1e8449); color: white; text-align: center; margin: 0; overflow: hidden; }
+body::before { content: ""; background: url("../config/assets/bg_rsu.png") no-repeat center center fixed; background-size: cover; position: fixed; top: 0; left: 0; width: 100%; height: 100%; opacity: 0.12; z-index: -1; }
+.header { background: rgba(0,0,0,0.3); padding: 20px; font-size: 42px; font-weight: bold; letter-spacing: 2px; }
+.status { position: fixed; top: 10px; right: 20px; font-size: 16px; background: rgba(255,255,255,0.15); padding: 6px 14px; border-radius: 20px; z-index: 1000; }
 .status.online { background: #2ecc71; }
 .status.offline { background: #e74c3c; }
-#ttsIndicator {
-    position: fixed;
-    top: 10px; left: 20px;
-    background: rgba(0,0,0,0.4);
-    color: #fff;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 15px;
-    font-weight: 500;
-    z-index: 1000;
-    backdrop-filter: blur(4px);
-    box-shadow: 0 0 6px rgba(0,0,0,0.3);
-}
-#btnSuara {
-    position: fixed; top: 60px; left: 20px;
-    background: #f1c40f; border: none; color: #2c3e50;
-    padding: 10px 20px; border-radius: 10px; font-size: 16px;
-    cursor: pointer; font-weight: bold; z-index: 999;
-}
+#ttsIndicator { position: fixed; top: 10px; left: 20px; background: rgba(0,0,0,0.4); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 15px; font-weight: 500; z-index: 1000; backdrop-filter: blur(4px); box-shadow: 0 0 6px rgba(0,0,0,0.3); }
+#btnSuara { position: fixed; top: 60px; left: 20px; background: #f1c40f; border: none; color: #2c3e50; padding: 10px 20px; border-radius: 10px; font-size: 16px; cursor: pointer; font-weight: bold; z-index: 999; }
+#btnSuara:disabled { opacity: 0.6; cursor: wait; }
 .main { display: grid; grid-template-columns: 70% 30%; height: calc(100vh - 270px); gap: 10px; padding: 20px; box-sizing: border-box; }
 .left { display: flex; justify-content: center; align-items: center; background: black; overflow: hidden; border-radius: 12px; }
 .left video { width: 100%; height: 100%; object-fit: cover; background: black; }
@@ -107,12 +62,14 @@ body::before {
 <audio id="bell" src="../tingtong.mp3" preload="auto"></audio>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
+const STREAM_ENABLED = <?php echo defined('ENABLE_STREAMING') && ENABLE_STREAMING ? 'true' : 'false'; ?>;
+const STREAM_URL = <?php echo json_encode(defined('STREAM_URL') ? STREAM_URL : ''); ?>;
+
 const bell = document.getElementById("bell");
 const statusEl = document.getElementById("status");
 const ttsIndicator = document.getElementById("ttsIndicator");
 const btnSuara = document.getElementById("btnSuara");
 const video = document.getElementById("tvStream");
-
 let suaraConfig = null;
 let ttsContext = null;
 let ttsQueue = Promise.resolve();
@@ -133,21 +90,13 @@ function updateKoneksi(ok, message) {
     statusEl.textContent = ok ? "🟢 Terhubung ke Server" : (message || "🔴 Putus koneksi");
 }
 
-function clamp(value, min, max) {
-    return Math.min(Math.max(value, min), max);
-}
+function clamp(value, min, max) { return Math.min(Math.max(value, min), max); }
 
 function fadeVolume(target) {
     target = clamp(Number(target) || 0, 0, 1);
-    if (volumeFadeTimer) {
-        clearInterval(volumeFadeTimer);
-        volumeFadeTimer = null;
-    }
+    if (volumeFadeTimer) { clearInterval(volumeFadeTimer); volumeFadeTimer = null; }
     const start = Number(video.volume) || 0;
-    if (Math.abs(start - target) < 0.01) {
-        video.volume = target;
-        return;
-    }
+    if (Math.abs(start - target) < 0.01) { video.volume = target; return; }
     const step = target > start ? 0.05 : -0.05;
     volumeFadeTimer = setInterval(() => {
         let next = Math.round((video.volume + step) * 100) / 100;
@@ -167,19 +116,14 @@ async function ensureTTSContext() {
             if (AudioCtx) ttsContext = new AudioCtx();
         }
         if (ttsContext && ttsContext.state === "suspended") await ttsContext.resume();
-    } catch (e) {
-        console.warn("AudioContext tidak dapat diaktifkan:", e);
-    }
+    } catch (e) { console.warn("AudioContext tidak dapat diaktifkan:", e); }
 }
 
 async function loadSuaraConfig() {
     const fallback = {
         template_obat: "Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}",
         template_racikan: "Panggilan pengambilan obat racikan, nomor antrian {nomor}, silakan menuju ke {loket}",
-        voice: "default",
-        lang: "id-ID",
-        volume: 1,
-        rate: 1
+        voice: "default", lang: "id-ID", volume: 1, rate: 1
     };
     try {
         const res = await fetch("../config/get_suara.php", { cache: "no-store" });
@@ -209,21 +153,13 @@ function angkaKeKata(n) {
 
 function startHeartbeat(id, color) {
     const el = document.getElementById(id);
-    if (el) {
-        el.style.setProperty("--glow-color", color);
-        el.classList.add("heartbeat");
-    }
+    if (el) { el.style.setProperty("--glow-color", color); el.classList.add("heartbeat"); }
 }
-
-function stopHeartbeat(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove("heartbeat");
-}
+function stopHeartbeat(id) { const el = document.getElementById(id); if (el) el.classList.remove("heartbeat"); }
 
 function getVoice() {
-    if (!suaraConfig) return null;
+    if (!suaraConfig || !("speechSynthesis" in window)) return null;
     const voices = speechSynthesis.getVoices();
-    if (!voices.length) return null;
     return voices.find(v => v.name === suaraConfig.voice) ||
            voices.find(v => v.lang === suaraConfig.lang) ||
            voices.find(v => /^id(-|_)/i.test(v.lang)) || null;
@@ -232,6 +168,7 @@ function getVoice() {
 function speakQueued(teks, boxId, color) {
     ttsQueue = ttsQueue.then(async () => {
         await ensureTTSContext();
+        if (!("speechSynthesis" in window)) throw new Error("Speech Synthesis tidak tersedia");
         await new Promise(resolve => {
             const u = new SpeechSynthesisUtterance(teks);
             u.lang = suaraConfig.lang || "id-ID";
@@ -239,7 +176,6 @@ function speakQueued(teks, boxId, color) {
             u.rate = clamp(Number(suaraConfig.rate) || 1, 0.5, 2);
             const voice = getVoice();
             if (voice) u.voice = voice;
-
             let settled = false;
             const finish = (message) => {
                 if (settled) return;
@@ -248,16 +184,10 @@ function speakQueued(teks, boxId, color) {
                 ttsIndicator.textContent = message || "🔊 TTS Aktif";
                 resolve();
             };
-
-            u.onstart = () => {
-                startHeartbeat(boxId, color);
-                ttsIndicator.textContent = "🗣️ Membaca antrian...";
-            };
+            u.onstart = () => { startHeartbeat(boxId, color); ttsIndicator.textContent = "🗣️ Membaca antrian..."; };
             u.onend = () => finish("🔊 TTS Aktif");
             u.onerror = () => finish("⚠️ Error TTS");
-
             speechSynthesis.speak(u);
-            // Watchdog: jangan biarkan satu utterance mengunci seluruh antrean TTS.
             setTimeout(() => finish("🔊 TTS Aktif"), 15000);
         });
     }).catch(err => {
@@ -270,7 +200,6 @@ function speakQueued(teks, boxId, color) {
 async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
     ttsQueue = ttsQueue.then(async () => {
         fadeVolume(VIDEO_VOLUME_DUCKED);
-
         let nomorVoice = String(nomor || "").trim();
         const match = nomorVoice.match(/^([A-Za-z]+)?(\d+)$/);
         if (match) {
@@ -278,16 +207,13 @@ async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
             const angka = match[2].replace(/^0+/, "") || "0";
             nomorVoice = prefix + angkaKeKata(angka);
         }
-
         let loketVoice = String(loket || "1").trim();
         if (/^\d+$/.test(loketVoice)) loketVoice = "loket " + angkaKeKata(loketVoice);
-
         let teks = String(template || "")
             .replaceAll("{nomor}", nomorVoice)
             .replaceAll("{loket}", loketVoice)
             .replace(/\bloket\s+loket\b/gi, "loket")
             .trim();
-
         await speakQueued(teks, boxId, color);
         fadeVolume(normalVolume);
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -296,68 +222,47 @@ async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
 }
 
 function destroyHLS() {
-    if (hls) {
-        try { hls.destroy(); } catch (e) {}
-        hls = null;
-    }
-    if (hlsRetryTimer) {
-        clearTimeout(hlsRetryTimer);
-        hlsRetryTimer = null;
-    }
+    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+    if (hlsRetryTimer) { clearTimeout(hlsRetryTimer); hlsRetryTimer = null; }
 }
 
 function scheduleHLSRetry(url) {
-    if (hlsRetryTimer) return;
-    hlsRetryTimer = setTimeout(() => {
-        hlsRetryTimer = null;
-        playStream(url);
-    }, 4000);
+    if (hlsRetryTimer || !STREAM_ENABLED) return;
+    hlsRetryTimer = setTimeout(() => { hlsRetryTimer = null; playStream(url); }, 4000);
 }
 
 function playStream(url) {
     destroyHLS();
-    if (!url) return;
-
+    if (!url || !STREAM_ENABLED) return;
     if (window.Hls && Hls.isSupported()) {
-        hls = new Hls({
-            maxBufferLength: 10,
-            maxMaxBufferLength: 20,
-            backBufferLength: 10,
-            enableWorker: true
-        });
+        hls = new Hls({ maxBufferLength: 10, maxMaxBufferLength: 20, backBufferLength: 10, enableWorker: true });
         hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            video.play().catch(() => {});
-        });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
         hls.on(Hls.Events.ERROR, (event, data) => {
             if (!data || !data.fatal) return;
             console.warn("HLS fatal error:", data.type, data.details);
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                 try { hls.recoverMediaError(); } catch (e) { scheduleHLSRetry(url); }
-            } else {
-                scheduleHLSRetry(url);
-            }
+            } else scheduleHLSRetry(url);
         });
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url;
         video.addEventListener("loadedmetadata", () => video.play().catch(() => {}), { once: true });
         video.addEventListener("error", () => scheduleHLSRetry(url), { once: true });
-    } else {
-        console.error("HLS tidak didukung di browser ini");
-    }
+    } else console.error("HLS tidak didukung di browser ini");
 }
 
 function startStream() {
-    const streamURL = (typeof window.STREAM_URL === "string" && window.STREAM_URL) ? window.STREAM_URL : "http://192.168.9.136/hls/stream.m3u8";
-    playStream(streamURL);
+    if (!STREAM_ENABLED) {
+        console.info("Streaming dinonaktifkan melalui stream_config.php");
+        return;
+    }
+    playStream(STREAM_URL);
 }
 
 function clearSSEReconnect() {
-    if (sseReconnectTimer) {
-        clearTimeout(sseReconnectTimer);
-        sseReconnectTimer = null;
-    }
+    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
 }
 
 function scheduleSSEReconnect() {
@@ -380,28 +285,13 @@ function scheduleSSEReconnect() {
 
 function connectSSE() {
     clearSSEReconnect();
-    if (sse) {
-        try { sse.close(); } catch (e) {}
-        sse = null;
-    }
+    if (sse) { try { sse.close(); } catch (e) {} sse = null; }
+    try { sse = new EventSource("event_stream.php"); }
+    catch (e) { scheduleSSEReconnect(); return; }
 
-    try {
-        sse = new EventSource("event_stream.php");
-    } catch (e) {
-        scheduleSSEReconnect();
-        return;
-    }
-
-    sse.onopen = () => {
-        sseReconnectAttempts = 0;
-        updateKoneksi(true);
-    };
-
+    sse.onopen = () => { sseReconnectAttempts = 0; updateKoneksi(true); };
     sse.onerror = () => {
-        if (sse) {
-            try { sse.close(); } catch (e) {}
-            sse = null;
-        }
+        if (sse) { try { sse.close(); } catch (e) {} sse = null; }
         scheduleSSEReconnect();
     };
 
@@ -409,29 +299,23 @@ function connectSSE() {
         let d;
         try { d = JSON.parse(e.data); } catch (err) { console.warn("Payload SSE tidak valid"); return; }
         if (!d || !d.no) return;
-
         const eventTime = Number(d.time) || Math.floor(Date.now() / 1000);
         const isRepeat = !!d.ulang;
         if (!isRepeat) {
             if (eventTime < sessionStartTime) return;
             if (eventTime < lastCallTime) return;
         }
-
         lastNumberCalled = String(d.no);
         lastCallTime = Math.max(lastCallTime, eventTime);
-
         const jenis = String(d.jenis || "").toLowerCase();
         const nomor = String(d.no);
         const isRacikan = jenis === "racikan" || nomor.toUpperCase().startsWith("R");
         const loket = String(d.loket || "1");
-
         bell.currentTime = 0;
         bell.play().catch(() => {});
-
         setTimeout(() => {
             const loketLabelRaw = loket.trim();
             const loketLabel = /^loket\b/i.test(loketLabelRaw) ? loketLabelRaw : "Loket " + loketLabelRaw;
-
             if (isRacikan) {
                 document.getElementById("noRacikan").textContent = nomor;
                 document.getElementById("loketRacikan").textContent = "Menuju " + loketLabel;
@@ -441,7 +325,6 @@ function connectSSE() {
                 document.getElementById("loketObat").textContent = "Menuju " + loketLabel;
                 playVoiceWithEffect(suaraConfig.template_obat, nomor, loket, "boxObat", "#f1c40f");
             }
-
             const matchLoket = loket.match(/\d+/);
             if (matchLoket) {
                 const el = document.getElementById("loket" + matchLoket[0]);
@@ -460,7 +343,6 @@ btnSuara.addEventListener("click", async () => {
     btnSuara.disabled = true;
     await ensureTTSContext();
     await loadSuaraConfig();
-
     try {
         await speakQueued("Inisialisasi suara", "boxObat", "#f1c40f");
         await new Promise(resolve => setTimeout(resolve, 700));
@@ -474,10 +356,7 @@ btnSuara.addEventListener("click", async () => {
     }
 });
 
-// Voice list dapat berubah setelah browser selesai memuatnya.
-if ("speechSynthesis" in window) {
-    speechSynthesis.onvoiceschanged = () => {};
-}
+if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => {};
 
 document.addEventListener("DOMContentLoaded", async () => {
     await loadSuaraConfig();
@@ -486,9 +365,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 window.addEventListener("beforeunload", () => {
     clearSSEReconnect();
-    if (sse) {
-        try { sse.close(); } catch (e) {}
-    }
+    if (sse) { try { sse.close(); } catch (e) {} }
     destroyHLS();
     if (volumeFadeTimer) clearInterval(volumeFadeTimer);
     try { speechSynthesis.cancel(); } catch (e) {}
