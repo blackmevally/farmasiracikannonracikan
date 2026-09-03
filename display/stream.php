@@ -1,5 +1,13 @@
 <?php
 include("../config/db.php");
+
+// Production response headers. Tidak mengubah alur aplikasi lama.
+header('Content-Type: text/html; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
+header('X-Frame-Options: SAMEORIGIN');
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -7,6 +15,7 @@ include("../config/db.php");
 <meta charset="UTF-8">
 <title>Display Antrian Farmasi</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <style>
 body {
     font-family: 'Segoe UI', sans-serif;
@@ -40,6 +49,7 @@ body::before {
     background: rgba(255,255,255,0.15);
     padding: 6px 14px;
     border-radius: 20px;
+    z-index: 1000;
 }
 .status.online { background: #2ecc71; }
 .status.offline { background: #e74c3c; }
@@ -94,7 +104,7 @@ body::before {
     </div>
 </div>
 <div class="footer"><div class="loket-box"><h2>Loket 3</h2><p id="loket3">---</p></div><div class="loket-box"><h2>Loket 2</h2><p id="loket2">---</p></div><div class="loket-box"><h2>Loket 1</h2><p id="loket1">---</p></div></div>
-<audio id="bell" src="../tingtong.mp3"></audio>
+<audio id="bell" src="../tingtong.mp3" preload="auto"></audio>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
 const bell = document.getElementById("bell");
@@ -102,115 +112,387 @@ const statusEl = document.getElementById("status");
 const ttsIndicator = document.getElementById("ttsIndicator");
 const btnSuara = document.getElementById("btnSuara");
 const video = document.getElementById("tvStream");
+
 let suaraConfig = null;
 let ttsContext = null;
 let ttsQueue = Promise.resolve();
 let lastNumberCalled = null;
 let lastCallTime = 0;
-let sessionStartTime = Math.floor(Date.now() / 1000);
-let refreshCountdown = 6 * 60 * 60;
-let VIDEO_VOLUME_NORMAL = 0.3;
+let sse = null;
+let sseReconnectTimer = null;
+let sseReconnectAttempts = 0;
+let hls = null;
+let hlsRetryTimer = null;
+let volumeFadeTimer = null;
+let normalVolume = 0.3;
 const VIDEO_VOLUME_DUCKED = 0.05;
-document.addEventListener("DOMContentLoaded", () => {
-    const streamURL = "http://192.168.9.136/hls/stream.m3u8";
-    video.volume = VIDEO_VOLUME_NORMAL;
-    function playStream(url) {
-        if (Hls.isSupported()) {
-            const hls = new Hls({ maxBufferLength: 10 });
-            hls.loadSource(url);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    console.warn("Stream error, mencoba ulang...");
-                    setTimeout(() => playStream(url), 4000);
-                }
-            });
-        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-            video.src = url;
-        } else console.error("HLS tidak didukung di browser ini");
-    }
-    fetch(streamURL, { method: "HEAD" }).then(res => { if (res.ok) playStream(streamURL); else console.warn("Stream tidak aktif:", streamURL); }).catch(() => console.warn("Tidak dapat menghubungi server stream:", streamURL));
-});
+const sessionStartTime = Math.floor(Date.now() / 1000);
+
+function updateKoneksi(ok, message) {
+    statusEl.className = "status " + (ok ? "online" : "offline");
+    statusEl.textContent = ok ? "🟢 Terhubung ke Server" : (message || "🔴 Putus koneksi");
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
 function fadeVolume(target) {
-    const step = (target > video.volume) ? 0.05 : -0.05;
-    const timer = setInterval(() => {
-        video.volume = Math.round((video.volume + step) * 100) / 100;
-        if ((step < 0 && video.volume <= target) || (step > 0 && video.volume >= target)) { video.volume = target; clearInterval(timer); }
+    target = clamp(Number(target) || 0, 0, 1);
+    if (volumeFadeTimer) {
+        clearInterval(volumeFadeTimer);
+        volumeFadeTimer = null;
+    }
+    const start = Number(video.volume) || 0;
+    if (Math.abs(start - target) < 0.01) {
+        video.volume = target;
+        return;
+    }
+    const step = target > start ? 0.05 : -0.05;
+    volumeFadeTimer = setInterval(() => {
+        let next = Math.round((video.volume + step) * 100) / 100;
+        if ((step < 0 && next <= target) || (step > 0 && next >= target)) {
+            next = target;
+            clearInterval(volumeFadeTimer);
+            volumeFadeTimer = null;
+        }
+        video.volume = clamp(next, 0, 1);
     }, 100);
 }
+
 async function ensureTTSContext() {
-    if (!ttsContext) { try { ttsContext = new AudioContext(); const buf = ttsContext.createBuffer(1, 1, 22050); const src = ttsContext.createBufferSource(); src.buffer = buf; src.connect(ttsContext.destination); src.start(0); await ttsContext.resume(); } catch {} }
-    else if (ttsContext.state === "suspended") await ttsContext.resume();
+    try {
+        if (!ttsContext) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) ttsContext = new AudioCtx();
+        }
+        if (ttsContext && ttsContext.state === "suspended") await ttsContext.resume();
+    } catch (e) {
+        console.warn("AudioContext tidak dapat diaktifkan:", e);
+    }
 }
+
 async function loadSuaraConfig() {
-    try { const res = await fetch("../config/get_suara.php"); suaraConfig = await res.json(); }
-    catch { suaraConfig = { template_obat: "Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}", template_racikan: "Panggilan pengambilan obat racikan, nomor antrian {nomor}, silakan menuju ke {loket}", voice: "Google Bahasa Indonesia", lang: "id-ID", volume: 1, rate: 1 }; }
-    VIDEO_VOLUME_NORMAL = (suaraConfig.volume ?? 1) * 0.3;
+    const fallback = {
+        template_obat: "Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}",
+        template_racikan: "Panggilan pengambilan obat racikan, nomor antrian {nomor}, silakan menuju ke {loket}",
+        voice: "default",
+        lang: "id-ID",
+        volume: 1,
+        rate: 1
+    };
+    try {
+        const res = await fetch("../config/get_suara.php", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        suaraConfig = Object.assign({}, fallback, data || {});
+    } catch (e) {
+        console.warn("Config suara gagal dimuat, menggunakan default:", e);
+        suaraConfig = fallback;
+    }
+    const volume = clamp(Number(suaraConfig.volume), 0, 1);
+    normalVolume = clamp(volume * 0.3, 0, 1);
+    video.volume = normalVolume;
 }
+
 function angkaKeKata(n) {
-    const s=["","satu","dua","tiga","empat","lima","enam","tujuh","delapan","sembilan"], b=["sepuluh","sebelas","dua belas","tiga belas","empat belas","lima belas","enam belas","tujuh belas","delapan belas","sembilan belas"], p=["","", "dua puluh","tiga puluh","empat puluh","lima puluh","enam puluh","tujuh puluh","delapan puluh","sembilan puluh"];
-    n=parseInt(n); if(isNaN(n))return n; if(n<10)return s[n]; if(n<20)return b[n-10]; if(n<100)return p[Math.floor(n/10)] + (n%10?" "+s[n%10]:""); return n;
+    const satuan = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"];
+    n = parseInt(n, 10);
+    if (isNaN(n)) return "";
+    if (n < 10) return satuan[n];
+    if (n < 20) return n === 10 ? "sepuluh" : n === 11 ? "sebelas" : satuan[n - 10] + " belas";
+    if (n < 100) return satuan[Math.floor(n / 10)] + " puluh" + (n % 10 ? " " + satuan[n % 10] : "");
+    if (n < 200) return "seratus" + (n % 100 ? " " + angkaKeKata(n % 100) : "");
+    if (n < 1000) return satuan[Math.floor(n / 100)] + " ratus" + (n % 100 ? " " + angkaKeKata(n % 100) : "");
+    return String(n);
 }
-function startHeartbeat(id,color){const el=document.getElementById(id);if(el){el.style.setProperty("--glow-color",color);el.classList.add("heartbeat");}}
-function stopHeartbeat(id){const el=document.getElementById(id);if(el)el.classList.remove("heartbeat");}
-async function speakQueued(teks, boxId, color){
-    await ensureTTSContext();
-    await new Promise(resolve=>{
-        const u=new SpeechSynthesisUtterance(teks); u.lang=suaraConfig.lang; u.volume=suaraConfig.volume; u.rate=suaraConfig.rate;
-        const v=speechSynthesis.getVoices().find(v=>v.name===suaraConfig.voice); if(v)u.voice=v;
-        u.onstart=()=>{startHeartbeat(boxId,color);ttsIndicator.textContent="🗣️ Membaca antrian...";};
-        u.onend=()=>{stopHeartbeat(boxId);ttsIndicator.textContent="🔊 TTS Aktif";resolve();};
-        u.onerror=()=>{stopHeartbeat(boxId);ttsIndicator.textContent="⚠️ Error TTS";resolve();}; speechSynthesis.speak(u);
+
+function startHeartbeat(id, color) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.style.setProperty("--glow-color", color);
+        el.classList.add("heartbeat");
+    }
+}
+
+function stopHeartbeat(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("heartbeat");
+}
+
+function getVoice() {
+    if (!suaraConfig) return null;
+    const voices = speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    return voices.find(v => v.name === suaraConfig.voice) ||
+           voices.find(v => v.lang === suaraConfig.lang) ||
+           voices.find(v => /^id(-|_)/i.test(v.lang)) || null;
+}
+
+function speakQueued(teks, boxId, color) {
+    ttsQueue = ttsQueue.then(async () => {
+        await ensureTTSContext();
+        await new Promise(resolve => {
+            const u = new SpeechSynthesisUtterance(teks);
+            u.lang = suaraConfig.lang || "id-ID";
+            u.volume = clamp(Number(suaraConfig.volume), 0, 1);
+            u.rate = clamp(Number(suaraConfig.rate) || 1, 0.5, 2);
+            const voice = getVoice();
+            if (voice) u.voice = voice;
+
+            let settled = false;
+            const finish = (message) => {
+                if (settled) return;
+                settled = true;
+                stopHeartbeat(boxId);
+                ttsIndicator.textContent = message || "🔊 TTS Aktif";
+                resolve();
+            };
+
+            u.onstart = () => {
+                startHeartbeat(boxId, color);
+                ttsIndicator.textContent = "🗣️ Membaca antrian...";
+            };
+            u.onend = () => finish("🔊 TTS Aktif");
+            u.onerror = () => finish("⚠️ Error TTS");
+
+            speechSynthesis.speak(u);
+            // Watchdog: jangan biarkan satu utterance mengunci seluruh antrean TTS.
+            setTimeout(() => finish("🔊 TTS Aktif"), 15000);
+        });
+    }).catch(err => {
+        console.warn("TTS queue error:", err);
+        ttsIndicator.textContent = "⚠️ Error TTS";
     });
+    return ttsQueue;
 }
+
 async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
     ttsQueue = ttsQueue.then(async () => {
-        fadeVolume(VIDEO_VOLUME_DUCKED); let nomorVoice = nomor.toString().trim(); const m = nomorVoice.match(/^([A-Za-z]+)?(\d+)$/);
-        if (m) { const prefix = m[1] ? m[1].toUpperCase() + " " : ""; const angka = m[2].replace(/^0+/, ""); nomorVoice = prefix + angkaKeKata(angka); }
-        if (/^\d+$/.test(loket)) loket = "loket " + angkaKeKata(loket);
-        let teks = template.replace("{nomor}", nomorVoice).replace("{loket}", loket); teks = teks.replace(/\bloket\s+loket\b/gi, "loket"); teks = teks.replace(/\bloket\s+(loket\s+)?(\w+)/gi, "loket $2");
-        await speakQueued(teks, boxId, color); fadeVolume(VIDEO_VOLUME_NORMAL); await new Promise(r => setTimeout(r, 300));
+        fadeVolume(VIDEO_VOLUME_DUCKED);
+
+        let nomorVoice = String(nomor || "").trim();
+        const match = nomorVoice.match(/^([A-Za-z]+)?(\d+)$/);
+        if (match) {
+            const prefix = match[1] ? match[1].toUpperCase() + " " : "";
+            const angka = match[2].replace(/^0+/, "") || "0";
+            nomorVoice = prefix + angkaKeKata(angka);
+        }
+
+        let loketVoice = String(loket || "1").trim();
+        if (/^\d+$/.test(loketVoice)) loketVoice = "loket " + angkaKeKata(loketVoice);
+
+        let teks = String(template || "")
+            .replaceAll("{nomor}", nomorVoice)
+            .replaceAll("{loket}", loketVoice)
+            .replace(/\bloket\s+loket\b/gi, "loket")
+            .trim();
+
+        await speakQueued(teks, boxId, color);
+        fadeVolume(normalVolume);
+        await new Promise(resolve => setTimeout(resolve, 300));
+    });
+    return ttsQueue;
+}
+
+function destroyHLS() {
+    if (hls) {
+        try { hls.destroy(); } catch (e) {}
+        hls = null;
+    }
+    if (hlsRetryTimer) {
+        clearTimeout(hlsRetryTimer);
+        hlsRetryTimer = null;
+    }
+}
+
+function scheduleHLSRetry(url) {
+    if (hlsRetryTimer) return;
+    hlsRetryTimer = setTimeout(() => {
+        hlsRetryTimer = null;
+        playStream(url);
+    }, 4000);
+}
+
+function playStream(url) {
+    destroyHLS();
+    if (!url) return;
+
+    if (window.Hls && Hls.isSupported()) {
+        hls = new Hls({
+            maxBufferLength: 10,
+            maxMaxBufferLength: 20,
+            backBufferLength: 10,
+            enableWorker: true
+        });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {});
+        });
+        hls.on(Hls.Events.ERROR, (event, data) => {
+            if (!data || !data.fatal) return;
+            console.warn("HLS fatal error:", data.type, data.details);
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                try { hls.recoverMediaError(); } catch (e) { scheduleHLSRetry(url); }
+            } else {
+                scheduleHLSRetry(url);
+            }
+        });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = url;
+        video.addEventListener("loadedmetadata", () => video.play().catch(() => {}), { once: true });
+        video.addEventListener("error", () => scheduleHLSRetry(url), { once: true });
+    } else {
+        console.error("HLS tidak didukung di browser ini");
+    }
+}
+
+function startStream() {
+    const streamURL = (typeof window.STREAM_URL === "string" && window.STREAM_URL) ? window.STREAM_URL : "http://192.168.9.136/hls/stream.m3u8";
+    playStream(streamURL);
+}
+
+function clearSSEReconnect() {
+    if (sseReconnectTimer) {
+        clearTimeout(sseReconnectTimer);
+        sseReconnectTimer = null;
+    }
+}
+
+function scheduleSSEReconnect() {
+    clearSSEReconnect();
+    sseReconnectAttempts++;
+    const delay = Math.min(30000, Math.max(3000, 3000 * Math.pow(2, Math.min(sseReconnectAttempts - 1, 3))));
+    let seconds = Math.ceil(delay / 1000);
+    updateKoneksi(false, `🔴 Putus koneksi — mencoba ulang dalam ${seconds} detik...`);
+    const countdown = setInterval(() => {
+        seconds--;
+        if (seconds > 0) statusEl.textContent = `🔴 Putus koneksi — mencoba ulang dalam ${seconds} detik...`;
+        else clearInterval(countdown);
+    }, 1000);
+    sseReconnectTimer = setTimeout(() => {
+        clearInterval(countdown);
+        sseReconnectTimer = null;
+        connectSSE();
+    }, delay);
+}
+
+function connectSSE() {
+    clearSSEReconnect();
+    if (sse) {
+        try { sse.close(); } catch (e) {}
+        sse = null;
+    }
+
+    try {
+        sse = new EventSource("event_stream.php");
+    } catch (e) {
+        scheduleSSEReconnect();
+        return;
+    }
+
+    sse.onopen = () => {
+        sseReconnectAttempts = 0;
+        updateKoneksi(true);
+    };
+
+    sse.onerror = () => {
+        if (sse) {
+            try { sse.close(); } catch (e) {}
+            sse = null;
+        }
+        scheduleSSEReconnect();
+    };
+
+    sse.addEventListener("update", (e) => {
+        let d;
+        try { d = JSON.parse(e.data); } catch (err) { console.warn("Payload SSE tidak valid"); return; }
+        if (!d || !d.no) return;
+
+        const eventTime = Number(d.time) || Math.floor(Date.now() / 1000);
+        const isRepeat = !!d.ulang;
+        if (!isRepeat) {
+            if (eventTime < sessionStartTime) return;
+            if (eventTime < lastCallTime) return;
+        }
+
+        lastNumberCalled = String(d.no);
+        lastCallTime = Math.max(lastCallTime, eventTime);
+
+        const jenis = String(d.jenis || "").toLowerCase();
+        const nomor = String(d.no);
+        const isRacikan = jenis === "racikan" || nomor.toUpperCase().startsWith("R");
+        const loket = String(d.loket || "1");
+
+        bell.currentTime = 0;
+        bell.play().catch(() => {});
+
+        setTimeout(() => {
+            const loketLabelRaw = loket.trim();
+            const loketLabel = /^loket\b/i.test(loketLabelRaw) ? loketLabelRaw : "Loket " + loketLabelRaw;
+
+            if (isRacikan) {
+                document.getElementById("noRacikan").textContent = nomor;
+                document.getElementById("loketRacikan").textContent = "Menuju " + loketLabel;
+                playVoiceWithEffect(suaraConfig.template_racikan, nomor, loket, "boxRacikan", "#00bfff");
+            } else {
+                document.getElementById("noObat").textContent = nomor;
+                document.getElementById("loketObat").textContent = "Menuju " + loketLabel;
+                playVoiceWithEffect(suaraConfig.template_obat, nomor, loket, "boxObat", "#f1c40f");
+            }
+
+            const matchLoket = loket.match(/\d+/);
+            if (matchLoket) {
+                const el = document.getElementById("loket" + matchLoket[0]);
+                if (el) el.textContent = nomor;
+            }
+        }, 800);
     });
 }
-function updateKoneksi(ok){statusEl.className="status "+(ok?"online":"offline");statusEl.innerHTML=ok?"🟢 Terhubung ke Server":"🔴 Putus koneksi";}
+
 async function startSSE() {
-    await loadSuaraConfig(); let reconnectDelay = 5; let reconnectTimer = null;
-    const connectSSE = () => {
-        const sse = new EventSource("event_stream.php");
-        sse.onopen = () => { updateKoneksi(true); if (reconnectTimer) clearInterval(reconnectTimer); };
-        sse.onerror = () => { sse.close(); updateKoneksi(false); let count = reconnectDelay; statusEl.innerHTML = `🔴 Putus koneksi — mencoba ulang dalam ${count} detik...`; reconnectTimer = setInterval(() => { count--; if (count > 0) statusEl.innerHTML = `🔴 Putus koneksi — mencoba ulang dalam ${count} detik...`; else { clearInterval(reconnectTimer); connectSSE(); } }, 1000); };
-        sse.addEventListener("update", (e) => {
-            const d = JSON.parse(e.data); if (!d.no) return;
-            if (!d.ulang) { if (d.time < sessionStartTime) return; if (d.time <= lastCallTime) return; }
-            lastNumberCalled = d.no; lastCallTime = d.time || Math.floor(Date.now() / 1000);
-            const jenis = (d.jenis || "").toLowerCase(); const isRacikan = jenis === "racikan" || (d.no && d.no.startsWith("R")); const loket = d.loket || "1"; const nomor = d.no;
-            bell.play().catch(() => {});
-            setTimeout(() => {
-                if (isRacikan) {
-                    document.getElementById("noRacikan").textContent = nomor;
-                    let loketLabel = loket.trim().toLowerCase(); if (!loketLabel.startsWith("loket")) loketLabel = "Loket " + loketLabel;
-                    document.getElementById("loketRacikan").textContent = "Menuju " + loketLabel;
-                    playVoiceWithEffect(suaraConfig.template_racikan, nomor, loket, "boxRacikan", "#00bfff");
-                } else {
-                    document.getElementById("noObat").textContent = nomor;
-                    let loketLabel = loket.trim().toLowerCase(); if (!loketLabel.startsWith("loket")) loketLabel = "Loket " + loketLabel;
-                    document.getElementById("loketObat").textContent = "Menuju " + loketLabel;
-                    playVoiceWithEffect(suaraConfig.template_obat, nomor, loket, "boxObat", "#f1c40f");
-                }
-                const ln = loket.match(/\d+/); if (ln) { const el = document.getElementById("loket" + ln[0]); if (el) el.textContent = nomor; }
-            }, 800);
-        });
-    }; connectSSE();
+    await loadSuaraConfig();
+    connectSSE();
 }
+
 btnSuara.addEventListener("click", async () => {
-    await ensureTTSContext(); const init = new SpeechSynthesisUtterance("Inisialisasi suara,"); init.lang = "id-ID"; speechSynthesis.speak(init);
-    setTimeout(() => { const ready = new SpeechSynthesisUtterance("Suara aktif."); ready.lang = "id-ID"; speechSynthesis.speak(ready); btnSuara.style.display = "none"; ttsIndicator.textContent = "🔊 TTS Aktif"; startSSE(); }, 1000);
+    btnSuara.disabled = true;
+    await ensureTTSContext();
+    await loadSuaraConfig();
+
+    try {
+        await speakQueued("Inisialisasi suara", "boxObat", "#f1c40f");
+        await new Promise(resolve => setTimeout(resolve, 700));
+        await speakQueued("Suara aktif", "boxObat", "#f1c40f");
+        ttsIndicator.textContent = "🔊 TTS Aktif";
+        btnSuara.style.display = "none";
+        startSSE();
+    } catch (e) {
+        btnSuara.disabled = false;
+        ttsIndicator.textContent = "⚠️ Gagal mengaktifkan suara";
+    }
 });
-setInterval(() => {
-    refreshCountdown--; const jam = Math.floor(refreshCountdown / 3600); const menit = Math.floor((refreshCountdown % 3600) / 60); const detik = refreshCountdown % 60;
-    if(btnSuara.style.display==="none") ttsIndicator.textContent=`🔊 TTS Aktif | Refresh dalam ${jam}j ${menit}m ${detik}s`; else ttsIndicator.textContent=`🔇 TTS Nonaktif | Tekan tombol untuk aktifkan`;
-    if(refreshCountdown<=0) location.reload(true);
-},1000);
+
+// Voice list dapat berubah setelah browser selesai memuatnya.
+if ("speechSynthesis" in window) {
+    speechSynthesis.onvoiceschanged = () => {};
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+    await loadSuaraConfig();
+    startStream();
+});
+
+window.addEventListener("beforeunload", () => {
+    clearSSEReconnect();
+    if (sse) {
+        try { sse.close(); } catch (e) {}
+    }
+    destroyHLS();
+    if (volumeFadeTimer) clearInterval(volumeFadeTimer);
+    try { speechSynthesis.cancel(); } catch (e) {}
+});
 </script>
 </body>
 </html>
