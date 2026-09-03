@@ -2,7 +2,6 @@
 include("../config/db.php");
 include("../config/stream_config.php");
 
-// Production response headers. Tidak mengubah alur aplikasi lama.
 header('Content-Type: text/html; charset=UTF-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
@@ -64,7 +63,6 @@ body::before { content: ""; background: url("../config/assets/bg_rsu.png") no-re
 <script>
 const STREAM_ENABLED = <?php echo defined('ENABLE_STREAMING') && ENABLE_STREAMING ? 'true' : 'false'; ?>;
 const STREAM_URL = <?php echo json_encode(defined('STREAM_URL') ? STREAM_URL : ''); ?>;
-
 const bell = document.getElementById("bell");
 const statusEl = document.getElementById("status");
 const ttsIndicator = document.getElementById("ttsIndicator");
@@ -89,9 +87,7 @@ function updateKoneksi(ok, message) {
     statusEl.className = "status " + (ok ? "online" : "offline");
     statusEl.textContent = ok ? "🟢 Terhubung ke Server" : (message || "🔴 Putus koneksi");
 }
-
 function clamp(value, min, max) { return Math.min(Math.max(value, min), max); }
-
 function fadeVolume(target) {
     target = clamp(Number(target) || 0, 0, 1);
     if (volumeFadeTimer) { clearInterval(volumeFadeTimer); volumeFadeTimer = null; }
@@ -108,7 +104,6 @@ function fadeVolume(target) {
         video.volume = clamp(next, 0, 1);
     }, 100);
 }
-
 async function ensureTTSContext() {
     try {
         if (!ttsContext) {
@@ -118,7 +113,6 @@ async function ensureTTSContext() {
         if (ttsContext && ttsContext.state === "suspended") await ttsContext.resume();
     } catch (e) { console.warn("AudioContext tidak dapat diaktifkan:", e); }
 }
-
 async function loadSuaraConfig() {
     const fallback = {
         template_obat: "Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}",
@@ -138,7 +132,6 @@ async function loadSuaraConfig() {
     normalVolume = clamp(volume * 0.3, 0, 1);
     video.volume = normalVolume;
 }
-
 function angkaKeKata(n) {
     const satuan = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"];
     n = parseInt(n, 10);
@@ -150,51 +143,38 @@ function angkaKeKata(n) {
     if (n < 1000) return satuan[Math.floor(n / 100)] + " ratus" + (n % 100 ? " " + angkaKeKata(n % 100) : "");
     return String(n);
 }
-
-function startHeartbeat(id, color) {
-    const el = document.getElementById(id);
-    if (el) { el.style.setProperty("--glow-color", color); el.classList.add("heartbeat"); }
-}
+function startHeartbeat(id, color) { const el = document.getElementById(id); if (el) { el.style.setProperty("--glow-color", color); el.classList.add("heartbeat"); } }
 function stopHeartbeat(id) { const el = document.getElementById(id); if (el) el.classList.remove("heartbeat"); }
-
 function getVoice() {
     if (!suaraConfig || !("speechSynthesis" in window)) return null;
     const voices = speechSynthesis.getVoices();
-    return voices.find(v => v.name === suaraConfig.voice) ||
-           voices.find(v => v.lang === suaraConfig.lang) ||
-           voices.find(v => /^id(-|_)/i.test(v.lang)) || null;
+    return voices.find(v => v.name === suaraConfig.voice) || voices.find(v => v.lang === suaraConfig.lang) || voices.find(v => /^id(-|_)/i.test(v.lang)) || null;
 }
 
 function speakQueued(teks, boxId, color) {
-    ttsQueue = ttsQueue.then(async () => {
+    return new Promise(async resolve => {
         await ensureTTSContext();
-        if (!("speechSynthesis" in window)) throw new Error("Speech Synthesis tidak tersedia");
-        await new Promise(resolve => {
-            const u = new SpeechSynthesisUtterance(teks);
-            u.lang = suaraConfig.lang || "id-ID";
-            u.volume = clamp(Number(suaraConfig.volume), 0, 1);
-            u.rate = clamp(Number(suaraConfig.rate) || 1, 0.5, 2);
-            const voice = getVoice();
-            if (voice) u.voice = voice;
-            let settled = false;
-            const finish = (message) => {
-                if (settled) return;
-                settled = true;
-                stopHeartbeat(boxId);
-                ttsIndicator.textContent = message || "🔊 TTS Aktif";
-                resolve();
-            };
-            u.onstart = () => { startHeartbeat(boxId, color); ttsIndicator.textContent = "🗣️ Membaca antrian..."; };
-            u.onend = () => finish("🔊 TTS Aktif");
-            u.onerror = () => finish("⚠️ Error TTS");
-            speechSynthesis.speak(u);
-            setTimeout(() => finish("🔊 TTS Aktif"), 15000);
-        });
-    }).catch(err => {
-        console.warn("TTS queue error:", err);
-        ttsIndicator.textContent = "⚠️ Error TTS";
+        if (!("speechSynthesis" in window)) { resolve(); return; }
+        const u = new SpeechSynthesisUtterance(teks);
+        u.lang = suaraConfig.lang || "id-ID";
+        u.volume = clamp(Number(suaraConfig.volume), 0, 1);
+        u.rate = clamp(Number(suaraConfig.rate) || 1, 0.5, 2);
+        const voice = getVoice();
+        if (voice) u.voice = voice;
+        let settled = false;
+        const finish = message => {
+            if (settled) return;
+            settled = true;
+            stopHeartbeat(boxId);
+            ttsIndicator.textContent = message || "🔊 TTS Aktif";
+            resolve();
+        };
+        u.onstart = () => { startHeartbeat(boxId, color); ttsIndicator.textContent = "🗣️ Membaca antrian..."; };
+        u.onend = () => finish("🔊 TTS Aktif");
+        u.onerror = () => finish("⚠️ Error TTS");
+        speechSynthesis.speak(u);
+        setTimeout(() => finish("🔊 TTS Aktif"), 15000);
     });
-    return ttsQueue;
 }
 
 async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
@@ -209,28 +189,21 @@ async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
         }
         let loketVoice = String(loket || "1").trim();
         if (/^\d+$/.test(loketVoice)) loketVoice = "loket " + angkaKeKata(loketVoice);
-        let teks = String(template || "")
-            .replaceAll("{nomor}", nomorVoice)
-            .replaceAll("{loket}", loketVoice)
-            .replace(/\bloket\s+loket\b/gi, "loket")
-            .trim();
+        const teks = String(template || "").replaceAll("{nomor}", nomorVoice).replaceAll("{loket}", loketVoice).replace(/\bloket\s+loket\b/gi, "loket").trim();
         await speakQueued(teks, boxId, color);
         fadeVolume(normalVolume);
         await new Promise(resolve => setTimeout(resolve, 300));
     });
     return ttsQueue;
 }
-
 function destroyHLS() {
     if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
     if (hlsRetryTimer) { clearTimeout(hlsRetryTimer); hlsRetryTimer = null; }
 }
-
 function scheduleHLSRetry(url) {
     if (hlsRetryTimer || !STREAM_ENABLED) return;
     hlsRetryTimer = setTimeout(() => { hlsRetryTimer = null; playStream(url); }, 4000);
 }
-
 function playStream(url) {
     destroyHLS();
     if (!url || !STREAM_ENABLED) return;
@@ -252,50 +225,24 @@ function playStream(url) {
         video.addEventListener("error", () => scheduleHLSRetry(url), { once: true });
     } else console.error("HLS tidak didukung di browser ini");
 }
-
-function startStream() {
-    if (!STREAM_ENABLED) {
-        console.info("Streaming dinonaktifkan melalui stream_config.php");
-        return;
-    }
-    playStream(STREAM_URL);
-}
-
-function clearSSEReconnect() {
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
-}
-
+function startStream() { if (STREAM_ENABLED) playStream(STREAM_URL); else console.info("Streaming dinonaktifkan melalui stream_config.php"); }
+function clearSSEReconnect() { if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; } }
 function scheduleSSEReconnect() {
     clearSSEReconnect();
     sseReconnectAttempts++;
     const delay = Math.min(30000, Math.max(3000, 3000 * Math.pow(2, Math.min(sseReconnectAttempts - 1, 3))));
     let seconds = Math.ceil(delay / 1000);
     updateKoneksi(false, `🔴 Putus koneksi — mencoba ulang dalam ${seconds} detik...`);
-    const countdown = setInterval(() => {
-        seconds--;
-        if (seconds > 0) statusEl.textContent = `🔴 Putus koneksi — mencoba ulang dalam ${seconds} detik...`;
-        else clearInterval(countdown);
-    }, 1000);
-    sseReconnectTimer = setTimeout(() => {
-        clearInterval(countdown);
-        sseReconnectTimer = null;
-        connectSSE();
-    }, delay);
+    const countdown = setInterval(() => { seconds--; if (seconds > 0) statusEl.textContent = `🔴 Putus koneksi — mencoba ulang dalam ${seconds} detik...`; else clearInterval(countdown); }, 1000);
+    sseReconnectTimer = setTimeout(() => { clearInterval(countdown); sseReconnectTimer = null; connectSSE(); }, delay);
 }
-
 function connectSSE() {
     clearSSEReconnect();
     if (sse) { try { sse.close(); } catch (e) {} sse = null; }
-    try { sse = new EventSource("event_stream.php"); }
-    catch (e) { scheduleSSEReconnect(); return; }
-
+    try { sse = new EventSource("event_stream.php"); } catch (e) { scheduleSSEReconnect(); return; }
     sse.onopen = () => { sseReconnectAttempts = 0; updateKoneksi(true); };
-    sse.onerror = () => {
-        if (sse) { try { sse.close(); } catch (e) {} sse = null; }
-        scheduleSSEReconnect();
-    };
-
-    sse.addEventListener("update", (e) => {
+    sse.onerror = () => { if (sse) { try { sse.close(); } catch (e) {} sse = null; } scheduleSSEReconnect(); };
+    sse.addEventListener("update", e => {
         let d;
         try { d = JSON.parse(e.data); } catch (err) { console.warn("Payload SSE tidak valid"); return; }
         if (!d || !d.no) return;
@@ -333,12 +280,7 @@ function connectSSE() {
         }, 800);
     });
 }
-
-async function startSSE() {
-    await loadSuaraConfig();
-    connectSSE();
-}
-
+async function startSSE() { await loadSuaraConfig(); connectSSE(); }
 btnSuara.addEventListener("click", async () => {
     btnSuara.disabled = true;
     await ensureTTSContext();
@@ -355,14 +297,8 @@ btnSuara.addEventListener("click", async () => {
         ttsIndicator.textContent = "⚠️ Gagal mengaktifkan suara";
     }
 });
-
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => {};
-
-document.addEventListener("DOMContentLoaded", async () => {
-    await loadSuaraConfig();
-    startStream();
-});
-
+document.addEventListener("DOMContentLoaded", async () => { await loadSuaraConfig(); startStream(); });
 window.addEventListener("beforeunload", () => {
     clearSSEReconnect();
     if (sse) { try { sse.close(); } catch (e) {} }
