@@ -1,41 +1,36 @@
 <?php
-include("../config/db.php");
-$msg = "";
+declare(strict_types=1);
 
-if (isset($_POST['import']) && isset($_FILES['sql_file'])) {
-    $file = $_FILES['sql_file']['tmp_name'];
-    if (file_exists($file)) {
-        $cmd = "\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root antrian_farmasi < \"$file\"";
-        exec($cmd, $out, $status);
-        $msg = $status === 0 ? "✅ Database berhasil diimport!" : "❌ Gagal import database.";
-    }
+session_start();
+if (empty($_SESSION['antrian_admin'])) {
+    http_response_code(403);
+    exit('Akses admin diperlukan.');
 }
+
+// Database import is intentionally disabled from the web UI.
+// Use phpMyAdmin/MySQL CLI on the server with an authenticated operator account.
+http_response_code(410);
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>Import Database ke MySQL</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Import Database</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>🗄️ Import Database ke MySQL</header>
+<header>🗄️ Import Database</header>
 <nav>
   <a href="dashboard.php">🏠 Dashboard</a>
   <a href="loket.php">💼 Loket</a>
   <a href="suara.php">🔊 Suara</a>
   <a href="reset.php">♻️ Reset</a>
 </nav>
-
 <div class="container">
-<h2>Import Database</h2>
-<?php if ($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
-<form method="POST" enctype="multipart/form-data">
-  <label>Pilih file .SQL</label>
-  <input type="file" name="sql_file" accept=".sql" required>
-  <button type="submit" name="import">📤 Import Sekarang</button>
-</form>
-<p><b>Catatan:</b> Pastikan nama database <code>antrian_farmasi</code> sudah ada di MySQL.</p>
+  <h2>Import Database Dinonaktifkan</h2>
+  <p>Import SQL melalui browser dinonaktifkan untuk mencegah eksekusi perintah database/OS dari endpoint web.</p>
+  <p>Gunakan phpMyAdmin atau MySQL CLI langsung pada server dengan akun operator yang terautentikasi.</p>
 </div>
 </body>
 </html>
