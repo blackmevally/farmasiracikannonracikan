@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/../config/stream_config.php';
+include("../config/db.php");
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -8,38 +8,209 @@ require_once __DIR__ . '/../config/stream_config.php';
 <title>Display Antrian Farmasi</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden}body{font-family:'Segoe UI',sans-serif;background:linear-gradient(180deg,#27ae60,#1e8449);color:#fff;text-align:center}body:before{content:"";position:fixed;inset:0;background:url('../config/assets/bg_rsu.png') center/cover no-repeat;opacity:.12;z-index:-1}.header{background:rgba(0,0,0,.3);padding:20px;font-size:42px;font-weight:700;letter-spacing:2px}.status,#ttsIndicator{position:fixed;top:10px;padding:6px 14px;border-radius:20px;font-size:15px;z-index:1000}.status{right:20px;background:rgba(255,255,255,.15)}.status.online{background:#2ecc71}.status.offline{background:#e74c3c}#ttsIndicator{left:20px;background:rgba(0,0,0,.4);backdrop-filter:blur(4px)}#btnSuara{position:fixed;top:55px;left:20px;background:#f1c40f;border:0;color:#2c3e50;padding:10px 20px;border-radius:10px;font-size:16px;cursor:pointer;font-weight:700;z-index:999}.main{display:grid;grid-template-columns:70% 30%;height:calc(100vh - 190px);gap:10px;padding:20px}.left{display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden;border-radius:12px}.left video{width:100%;height:100%;object-fit:cover;background:#000}.right{display:flex;flex-direction:column;justify-content:space-around;align-items:center}.panel-box{background:rgba(0,0,0,.25);border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.3);padding:25px 15px 30px;width:90%}.panel-title{font-size:27px;font-weight:600;margin-bottom:8px;text-transform:uppercase;color:#ecf0f1}#noObat,#noRacikan{font-size:150px;font-weight:700;text-shadow:4px 4px 10px rgba(0,0,0,.4);margin:0}#noObat{color:#f1c40f}#noRacikan{color:#00bfff}.label{background:#e74c3c;color:#fff;display:inline-block;margin-top:12px;padding:9px 20px;border-radius:10px;font-size:22px;min-width:210px}.footer{position:fixed;bottom:0;left:0;width:100%;display:flex;justify-content:space-around;background:rgba(0,0,0,.25);padding:15px 0}.loket-box{background:rgba(255,255,255,.1);padding:10px 15px;border-radius:15px;width:25%;box-shadow:0 5px 10px rgba(0,0,0,.3)}.loket-box h2{font-size:24px;margin:0;color:#ecf0f1}.loket-box p{font-size:42px;margin:5px 0 0;font-weight:700;color:#f1c40f}@keyframes heartbeat{0%,50%,100%{transform:scale(1)}25%,75%{transform:scale(1.05);box-shadow:0 0 25px var(--glow-color)}}.heartbeat{animation:heartbeat 1.3s ease-in-out infinite}@media(max-width:900px){.header{font-size:28px;padding:14px}.main{grid-template-columns:1fr;height:calc(100vh - 150px)}.left{display:none}#noObat,#noRacikan{font-size:100px}.right{flex-direction:row}.panel-box{width:48%}}
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(180deg, #27ae60, #1e8449);
+    color: white;
+    text-align: center;
+    margin: 0;
+    overflow: hidden;
+}
+body::before {
+    content: "";
+    background: url("../config/assets/bg_rsu.png") no-repeat center center fixed;
+    background-size: cover;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    opacity: 0.12;
+    z-index: -1;
+}
+.header {
+    background: rgba(0,0,0,0.3);
+    padding: 20px;
+    font-size: 42px;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+.status {
+    position: fixed;
+    top: 10px; right: 20px;
+    font-size: 16px;
+    background: rgba(255,255,255,0.15);
+    padding: 6px 14px;
+    border-radius: 20px;
+}
+.status.online { background: #2ecc71; }
+.status.offline { background: #e74c3c; }
+#ttsIndicator {
+    position: fixed;
+    top: 10px; left: 20px;
+    background: rgba(0,0,0,0.4);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 15px;
+    font-weight: 500;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 0 6px rgba(0,0,0,0.3);
+}
+#btnSuara {
+    position: fixed; top: 60px; left: 20px;
+    background: #f1c40f; border: none; color: #2c3e50;
+    padding: 10px 20px; border-radius: 10px; font-size: 16px;
+    cursor: pointer; font-weight: bold; z-index: 999;
+}
+.main { display: grid; grid-template-columns: 70% 30%; height: calc(100vh - 270px); gap: 10px; padding: 20px; box-sizing: border-box; }
+.left { display: flex; justify-content: center; align-items: center; background: black; overflow: hidden; border-radius: 12px; }
+.left video { width: 100%; height: 100%; object-fit: cover; background: black; }
+.right { display: flex; flex-direction: column; justify-content: space-around; align-items: center; }
+.panel-box { background: rgba(0,0,0,0.25); border-radius: 20px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); padding: 30px 20px 40px 20px; width: 90%; transition: transform 0.2s ease; }
+.panel-box:hover { transform: scale(1.02); }
+.panel-title { font-size: 28px; font-weight: 600; margin-bottom: 10px; text-transform: uppercase; color: #ecf0f1; }
+#noObat, #noRacikan { font-size: 160px; font-weight: bold; text-shadow: 4px 4px 10px rgba(0,0,0,0.4); margin: 0; }
+#noObat { color: #f1c40f; }
+#noRacikan { color: #00bfff; }
+.label { background: #e74c3c; color: white; display: inline-block; margin-top: 15px; padding: 10px 25px; border-radius: 10px; font-size: 24px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); width: fit-content; min-width: 220px; }
+.footer { position: absolute; bottom: 0; width: 100%; display: flex; justify-content: space-around; background: rgba(0,0,0,0.25); padding: 20px 0; }
+.loket-box { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 15px; width: 25%; box-shadow: 0 5px 10px rgba(0,0,0,0.3); }
+.loket-box h2 { font-size: 26px; margin: 0; font-weight: 600; color: #ecf0f1; }
+.loket-box p { font-size: 46px; margin: 10px 0 0 0; font-weight: bold; color: #f1c40f; }
+@keyframes heartbeat { 0% { transform: scale(1); box-shadow: 0 0 0px rgba(255,255,255,0); } 25% { transform: scale(1.06); box-shadow: 0 0 25px var(--glow-color); } 50% { transform: scale(1); } 75% { transform: scale(1.06); box-shadow: 0 0 25px var(--glow-color); } 100% { transform: scale(1); } }
+.heartbeat { animation: heartbeat 1.3s ease-in-out infinite; }
 </style>
 </head>
 <body>
-<div id="ttsIndicator">🔊 TTS Nonaktif</div><button id="btnSuara">🔊 Aktifkan Suara</button>
-<div class="header">ANTRIAN FARMASI PENGAMBILAN OBAT</div><div id="status" class="status offline">🔴 Putus koneksi</div>
-<div class="main"><div class="left"><video id="tvStream" autoplay muted playsinline controls></video></div><div class="right"><div class="panel-box" id="boxObat"><div class="panel-title">Antrian Bukan Racikan</div><div id="noObat">---</div><div class="label" id="loketObat">Menunggu panggilan...</div></div><div class="panel-box" id="boxRacikan"><div class="panel-title">Antrian Racikan</div><div id="noRacikan">---</div><div class="label" id="loketRacikan">Menunggu panggilan...</div></div></div></div>
+<div id="ttsIndicator">🔊 TTS Nonaktif</div>
+<button id="btnSuara">🔊 Aktifkan Suara</button>
+<div class="header">ANTRIAN FARMASI PENGAMBILAN OBAT</div>
+<div id="status" class="status offline">🔴 Putus koneksi</div>
+<div class="main">
+    <div class="left"><video id="tvStream" autoplay muted playsinline controls></video></div>
+    <div class="right">
+        <div class="panel-box" id="boxObat"><div class="panel-title">Antrian Bukan Racikan</div><div id="noObat">---</div><div class="label" id="loketObat">Menunggu panggilan...</div></div>
+        <div class="panel-box" id="boxRacikan"><div class="panel-title">Antrian Racikan</div><div id="noRacikan">---</div><div class="label" id="loketRacikan">Menunggu panggilan...</div></div>
+    </div>
+</div>
 <div class="footer"><div class="loket-box"><h2>Loket 3</h2><p id="loket3">---</p></div><div class="loket-box"><h2>Loket 2</h2><p id="loket2">---</p></div><div class="loket-box"><h2>Loket 1</h2><p id="loket1">---</p></div></div>
-<audio id="bell" src="../tingtong.mp3" preload="auto"></audio>
+<audio id="bell" src="../tingtong.mp3"></audio>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-const video=document.getElementById('tvStream'),bell=document.getElementById('bell'),statusEl=document.getElementById('status'),indicator=document.getElementById('ttsIndicator'),button=document.getElementById('btnSuara');
-const STREAM_ENABLED=<?= defined('ENABLE_STREAMING')&&ENABLE_STREAMING?'true':'false' ?>,STREAM_URL=<?= json_encode(defined('STREAM_URL')?STREAM_URL:'') ?>;
-let config=null,ttsQueue=Promise.resolve(),ttsContext=null,sse=null,reconnectTimer=null,reconnectCount=0,lastEventKey=null,heartbeatTimers={};
-const DEFAULT={template_obat:'Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}',template_racikan:'Panggilan pengambilan obat racikan, nomor antrian {nomor}, silakan menuju ke {loket}',voice:'default',lang:'id-ID',volume:1,rate:1};
-function setStatus(ok,msg){statusEl.className='status '+(ok?'online':'offline');statusEl.textContent=msg||(ok?'🟢 Terhubung ke Server':'🔴 Putus koneksi')}
-function loadConfig(){return fetch('../config/get_suara.php',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error();return r.json()}).catch(()=>DEFAULT).then(c=>{config=Object.assign({},DEFAULT,c);config.volume=Math.max(0,Math.min(1,Number(config.volume)||1));config.rate=Math.max(.5,Math.min(2,Number(config.rate)||1));return config})}
-function angkaKeKata(n){const s=['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan'],b=['sepuluh','sebelas','dua belas','tiga belas','empat belas','lima belas','enam belas','tujuh belas','delapan belas','sembilan belas'],p=['','','dua puluh','tiga puluh','empat puluh','lima puluh','enam puluh','tujuh puluh','delapan puluh','sembilan puluh'];n=parseInt(n,10);if(Number.isNaN(n))return '';if(n<10)return s[n];if(n<20)return b[n-10];if(n<100)return p[Math.floor(n/10)]+(n%10?' '+s[n%10]:'');if(n<200)return 'seratus'+(n%100?' '+angkaKeKata(n%100):'');if(n<1000)return s[Math.floor(n/100)]+' ratus'+(n%100?' '+angkaKeKata(n%100):'');return String(n)}
-function nomorVoice(n){const raw=String(n||'').trim(),m=raw.match(/^([A-Za-z]+)?(\d+)$/);if(!m)return raw;return (m[1]?m[1].toUpperCase()+' ':'')+angkaKeKata(m[2].replace(/^0+/,'')||'0')}
-function loketVoice(l){let x=String(l||'1').trim();if(/^\d+$/.test(x))return 'loket '+angkaKeKata(x);return x.replace(/^loket\s+/i,'loket ')}
-function displayLoket(l){const x=String(l||'1').trim();return /^loket/i.test(x)?'Menuju '+x:'Menuju Loket '+x}
-function heartbeat(id,color){const el=document.getElementById(id);if(!el)return;el.style.setProperty('--glow-color',color);el.classList.add('heartbeat');clearTimeout(heartbeatTimers[id]);heartbeatTimers[id]=setTimeout(()=>el.classList.remove('heartbeat'),15000)}
-function stopHeartbeat(id){const el=document.getElementById(id);if(el)el.classList.remove('heartbeat');clearTimeout(heartbeatTimers[id])}
-function fadeVolume(target,duration=250){target=Math.max(0,Math.min(1,target));return new Promise(resolve=>{const start=video.volume||0,delta=target-start;if(Math.abs(delta)<.01){video.volume=target;return resolve()}const t0=performance.now();function step(now){const p=Math.min(1,(now-t0)/duration);video.volume=Math.max(0,Math.min(1,start+delta*p));if(p<1)requestAnimationFrame(step);else resolve()}requestAnimationFrame(step)})}
-async function ensureAudio(){if(!ttsContext){try{ttsContext=new (window.AudioContext||window.webkitAudioContext)();await ttsContext.resume()}catch{}}else if(ttsContext.state==='suspended')await ttsContext.resume()}
-function speak(text,box,color){ttsQueue=ttsQueue.then(async()=>{await ensureAudio();await fadeVolume(.05,180);await new Promise(resolve=>{const u=new SpeechSynthesisUtterance(text);u.lang=config.lang||'id-ID';u.volume=config.volume;u.rate=config.rate;const v=speechSynthesis.getVoices().find(x=>x.name===config.voice);if(v)u.voice=v;let done=false,timer=setTimeout(()=>{if(done)return;done=true;try{speechSynthesis.cancel()}catch{}stopHeartbeat(box);resolve()},15000);u.onstart=()=>{heartbeat(box,color);indicator.textContent='🗣️ Membaca antrian...'};u.onend=()=>{if(done)return;done=true;clearTimeout(timer);stopHeartbeat(box);indicator.textContent='🔊 TTS Aktif';resolve()};u.onerror=()=>{if(done)return;done=true;clearTimeout(timer);stopHeartbeat(box);resolve()};speechSynthesis.speak(u)});await fadeVolume(config.volume*.3,250)}).catch(()=>fadeVolume(config.volume*.3,250));return ttsQueue}
-function handleCall(d){if(!d||!d.no||d.no==='---')return;const key=String(d.id??d.event_id??d.time??'')+'|'+String(d.no)+'|'+String(d.loket??'');if(!d.ulang&&key===lastEventKey)return;if(!d.ulang)lastEventKey=key;const jenis=String(d.jenis||'').toLowerCase(),racikan=jenis==='racikan'||String(d.no).toUpperCase().startsWith('R'),loket=String(d.loket||'1'),nomor=String(d.no);const box=racikan?'boxRacikan':'boxObat',color=racikan?'#00bfff':'#f1c40f';document.getElementById(racikan?'noRacikan':'noObat').textContent=nomor;document.getElementById(racikan?'loketRacikan':'loketObat').textContent=displayLoket(loket);const m=loket.match(/\d+/);if(m){const el=document.getElementById('loket'+m[0]);if(el)el.textContent=nomor}bell.currentTime=0;bell.play().catch(()=>{});setTimeout(()=>speak((racikan?config.template_racikan:config.template_obat).replaceAll('{nomor}',nomorVoice(nomor)).replaceAll('{loket}',loketVoice(loket)),box,color),250)}
-function connectSSE(){if(sse)try{sse.close()}catch{};sse=new EventSource('event_stream.php');sse.onopen=()=>{reconnectCount=0;setStatus(true)};sse.addEventListener('ping',()=>setStatus(true));sse.addEventListener('update',e=>{try{handleCall(JSON.parse(e.data))}catch(err){console.warn('Invalid SSE event',err)}});sse.onerror=()=>{setStatus(false,'🔴 Putus koneksi — mencoba ulang...');try{sse.close()}catch{};clearTimeout(reconnectTimer);reconnectCount=Math.min(reconnectCount+1,6);reconnectTimer=setTimeout(connectSSE,Math.min(30000,Math.max(3000,reconnectCount*3000)))} }
-function startStream(){if(!STREAM_ENABLED||!STREAM_URL)return;const start=()=>{if(window.Hls&&Hls.isSupported()){if(window.__hls)try{window.__hls.destroy()}catch{};const h=new Hls({maxBufferLength:10,enableWorker:true});window.__hls=h;h.loadSource(STREAM_URL);h.attachMedia(video);h.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));h.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal){try{h.destroy()}catch{};setTimeout(start,4000)}})}else if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=STREAM_URL;video.play().catch(()=>{})}};start()}
-button.addEventListener('click',async()=>{button.disabled=true;await ensureAudio();const u=new SpeechSynthesisUtterance('Suara aktif. Display siap digunakan.');u.lang='id-ID';speechSynthesis.cancel();speechSynthesis.speak(u);button.style.display='none';indicator.textContent='🔊 TTS Aktif';await loadConfig();connectSSE()});
-window.addEventListener('beforeunload',()=>{clearTimeout(reconnectTimer);if(sse)try{sse.close()}catch{};if(window.__hls)try{window.__hls.destroy()}catch{}});
-loadConfig().then(startStream);
+const bell = document.getElementById("bell");
+const statusEl = document.getElementById("status");
+const ttsIndicator = document.getElementById("ttsIndicator");
+const btnSuara = document.getElementById("btnSuara");
+const video = document.getElementById("tvStream");
+let suaraConfig = null;
+let ttsContext = null;
+let ttsQueue = Promise.resolve();
+let lastNumberCalled = null;
+let lastCallTime = 0;
+let sessionStartTime = Math.floor(Date.now() / 1000);
+let refreshCountdown = 6 * 60 * 60;
+let VIDEO_VOLUME_NORMAL = 0.3;
+const VIDEO_VOLUME_DUCKED = 0.05;
+document.addEventListener("DOMContentLoaded", () => {
+    const streamURL = "http://192.168.9.136/hls/stream.m3u8";
+    video.volume = VIDEO_VOLUME_NORMAL;
+    function playStream(url) {
+        if (Hls.isSupported()) {
+            const hls = new Hls({ maxBufferLength: 10 });
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    console.warn("Stream error, mencoba ulang...");
+                    setTimeout(() => playStream(url), 4000);
+                }
+            });
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = url;
+        } else console.error("HLS tidak didukung di browser ini");
+    }
+    fetch(streamURL, { method: "HEAD" }).then(res => { if (res.ok) playStream(streamURL); else console.warn("Stream tidak aktif:", streamURL); }).catch(() => console.warn("Tidak dapat menghubungi server stream:", streamURL));
+});
+function fadeVolume(target) {
+    const step = (target > video.volume) ? 0.05 : -0.05;
+    const timer = setInterval(() => {
+        video.volume = Math.round((video.volume + step) * 100) / 100;
+        if ((step < 0 && video.volume <= target) || (step > 0 && video.volume >= target)) { video.volume = target; clearInterval(timer); }
+    }, 100);
+}
+async function ensureTTSContext() {
+    if (!ttsContext) { try { ttsContext = new AudioContext(); const buf = ttsContext.createBuffer(1, 1, 22050); const src = ttsContext.createBufferSource(); src.buffer = buf; src.connect(ttsContext.destination); src.start(0); await ttsContext.resume(); } catch {} }
+    else if (ttsContext.state === "suspended") await ttsContext.resume();
+}
+async function loadSuaraConfig() {
+    try { const res = await fetch("../config/get_suara.php"); suaraConfig = await res.json(); }
+    catch { suaraConfig = { template_obat: "Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}", template_racikan: "Panggilan pengambilan obat racikan, nomor antrian {nomor}, silakan menuju ke {loket}", voice: "Google Bahasa Indonesia", lang: "id-ID", volume: 1, rate: 1 }; }
+    VIDEO_VOLUME_NORMAL = (suaraConfig.volume ?? 1) * 0.3;
+}
+function angkaKeKata(n) {
+    const s=["","satu","dua","tiga","empat","lima","enam","tujuh","delapan","sembilan"], b=["sepuluh","sebelas","dua belas","tiga belas","empat belas","lima belas","enam belas","tujuh belas","delapan belas","sembilan belas"], p=["","", "dua puluh","tiga puluh","empat puluh","lima puluh","enam puluh","tujuh puluh","delapan puluh","sembilan puluh"];
+    n=parseInt(n); if(isNaN(n))return n; if(n<10)return s[n]; if(n<20)return b[n-10]; if(n<100)return p[Math.floor(n/10)] + (n%10?" "+s[n%10]:""); return n;
+}
+function startHeartbeat(id,color){const el=document.getElementById(id);if(el){el.style.setProperty("--glow-color",color);el.classList.add("heartbeat");}}
+function stopHeartbeat(id){const el=document.getElementById(id);if(el)el.classList.remove("heartbeat");}
+async function speakQueued(teks, boxId, color){
+    await ensureTTSContext();
+    await new Promise(resolve=>{
+        const u=new SpeechSynthesisUtterance(teks); u.lang=suaraConfig.lang; u.volume=suaraConfig.volume; u.rate=suaraConfig.rate;
+        const v=speechSynthesis.getVoices().find(v=>v.name===suaraConfig.voice); if(v)u.voice=v;
+        u.onstart=()=>{startHeartbeat(boxId,color);ttsIndicator.textContent="🗣️ Membaca antrian...";};
+        u.onend=()=>{stopHeartbeat(boxId);ttsIndicator.textContent="🔊 TTS Aktif";resolve();};
+        u.onerror=()=>{stopHeartbeat(boxId);ttsIndicator.textContent="⚠️ Error TTS";resolve();}; speechSynthesis.speak(u);
+    });
+}
+async function playVoiceWithEffect(template, nomor, loket, boxId, color) {
+    ttsQueue = ttsQueue.then(async () => {
+        fadeVolume(VIDEO_VOLUME_DUCKED); let nomorVoice = nomor.toString().trim(); const m = nomorVoice.match(/^([A-Za-z]+)?(\d+)$/);
+        if (m) { const prefix = m[1] ? m[1].toUpperCase() + " " : ""; const angka = m[2].replace(/^0+/, ""); nomorVoice = prefix + angkaKeKata(angka); }
+        if (/^\d+$/.test(loket)) loket = "loket " + angkaKeKata(loket);
+        let teks = template.replace("{nomor}", nomorVoice).replace("{loket}", loket); teks = teks.replace(/\bloket\s+loket\b/gi, "loket"); teks = teks.replace(/\bloket\s+(loket\s+)?(\w+)/gi, "loket $2");
+        await speakQueued(teks, boxId, color); fadeVolume(VIDEO_VOLUME_NORMAL); await new Promise(r => setTimeout(r, 300));
+    });
+}
+function updateKoneksi(ok){statusEl.className="status "+(ok?"online":"offline");statusEl.innerHTML=ok?"🟢 Terhubung ke Server":"🔴 Putus koneksi";}
+async function startSSE() {
+    await loadSuaraConfig(); let reconnectDelay = 5; let reconnectTimer = null;
+    const connectSSE = () => {
+        const sse = new EventSource("event_stream.php");
+        sse.onopen = () => { updateKoneksi(true); if (reconnectTimer) clearInterval(reconnectTimer); };
+        sse.onerror = () => { sse.close(); updateKoneksi(false); let count = reconnectDelay; statusEl.innerHTML = `🔴 Putus koneksi — mencoba ulang dalam ${count} detik...`; reconnectTimer = setInterval(() => { count--; if (count > 0) statusEl.innerHTML = `🔴 Putus koneksi — mencoba ulang dalam ${count} detik...`; else { clearInterval(reconnectTimer); connectSSE(); } }, 1000); };
+        sse.addEventListener("update", (e) => {
+            const d = JSON.parse(e.data); if (!d.no) return;
+            if (!d.ulang) { if (d.time < sessionStartTime) return; if (d.time <= lastCallTime) return; }
+            lastNumberCalled = d.no; lastCallTime = d.time || Math.floor(Date.now() / 1000);
+            const jenis = (d.jenis || "").toLowerCase(); const isRacikan = jenis === "racikan" || (d.no && d.no.startsWith("R")); const loket = d.loket || "1"; const nomor = d.no;
+            bell.play().catch(() => {});
+            setTimeout(() => {
+                if (isRacikan) {
+                    document.getElementById("noRacikan").textContent = nomor;
+                    let loketLabel = loket.trim().toLowerCase(); if (!loketLabel.startsWith("loket")) loketLabel = "Loket " + loketLabel;
+                    document.getElementById("loketRacikan").textContent = "Menuju " + loketLabel;
+                    playVoiceWithEffect(suaraConfig.template_racikan, nomor, loket, "boxRacikan", "#00bfff");
+                } else {
+                    document.getElementById("noObat").textContent = nomor;
+                    let loketLabel = loket.trim().toLowerCase(); if (!loketLabel.startsWith("loket")) loketLabel = "Loket " + loketLabel;
+                    document.getElementById("loketObat").textContent = "Menuju " + loketLabel;
+                    playVoiceWithEffect(suaraConfig.template_obat, nomor, loket, "boxObat", "#f1c40f");
+                }
+                const ln = loket.match(/\d+/); if (ln) { const el = document.getElementById("loket" + ln[0]); if (el) el.textContent = nomor; }
+            }, 800);
+        });
+    }; connectSSE();
+}
+btnSuara.addEventListener("click", async () => {
+    await ensureTTSContext(); const init = new SpeechSynthesisUtterance("Inisialisasi suara,"); init.lang = "id-ID"; speechSynthesis.speak(init);
+    setTimeout(() => { const ready = new SpeechSynthesisUtterance("Suara aktif."); ready.lang = "id-ID"; speechSynthesis.speak(ready); btnSuara.style.display = "none"; ttsIndicator.textContent = "🔊 TTS Aktif"; startSSE(); }, 1000);
+});
+setInterval(() => {
+    refreshCountdown--; const jam = Math.floor(refreshCountdown / 3600); const menit = Math.floor((refreshCountdown % 3600) / 60); const detik = refreshCountdown % 60;
+    if(btnSuara.style.display==="none") ttsIndicator.textContent=`🔊 TTS Aktif | Refresh dalam ${jam}j ${menit}m ${detik}s`; else ttsIndicator.textContent=`🔇 TTS Nonaktif | Tekan tombol untuk aktifkan`;
+    if(refreshCountdown<=0) location.reload(true);
+},1000);
 </script>
 </body>
 </html>
