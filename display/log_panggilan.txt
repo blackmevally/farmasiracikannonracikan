@@ -1,0 +1,6 @@
+{
+    "no": "O074",
+    "loket": "Loket Loket 1",
+    "jenis": "obat",
+    "time": 1788408190
+}

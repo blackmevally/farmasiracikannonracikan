@@ -1,0 +1,8 @@
+{
+    "template_obat": "Panggilan pengambilan obat, nomor antrian {nomor}, silakan menuju ke {loket}",
+    "template_racikan": "Panggilan pengambilan obat racikan, nomor antrian {nomor}, silakan menuju ke {loket}",
+    "voice": "Google Bahasa Indonesia",
+    "lang": "id-ID",
+    "volume": 1,
+    "rate": 1
+}

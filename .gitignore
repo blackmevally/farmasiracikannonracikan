@@ -1,0 +1,32 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# XAMPP / local
+xampp/
+.htaccess.local
+
+# Logs
+*.log
+logs/
+log/
+tmp/
+cache/
+
+# Uploads
+uploads/
+assets/uploads/
+
+# Database dumps
+*.sql
+*.sql.gz
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# PHP
+vendor/
